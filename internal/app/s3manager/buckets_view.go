@@ -8,7 +8,7 @@ import (
 )
 
 // HandleBucketsView renders all buckets on an HTML page.
-func HandleBucketsView(s3 S3, templates fs.FS, allowDelete bool, rootURL string) http.HandlerFunc {
+func HandleBucketsView(s3 S3, templates fs.FS, allowDelete bool, rootURL string, bucketName string) http.HandlerFunc {
 	type pageData struct {
 		RootURL      string
 		Buckets      []any
@@ -31,6 +31,17 @@ func HandleBucketsView(s3 S3, templates fs.FS, allowDelete bool, rootURL string)
 		if err != nil {
 			handleHTTPError(w, fmt.Errorf("error listing buckets: %w", err))
 			return
+		}
+
+		if bucketName != "" {
+			filtered := buckets[:0]
+			for _, b := range buckets {
+				if b.Name == bucketName {
+					filtered = append(filtered, b)
+					break
+				}
+			}
+			buckets = filtered
 		}
 
 		data.Buckets = make([]any, len(buckets))

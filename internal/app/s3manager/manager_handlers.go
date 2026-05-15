@@ -28,7 +28,7 @@ type objectWithIconExtended struct {
 }
 
 // HandleBucketsViewWithManager renders all buckets on an HTML page using MultiS3Manager.
-func HandleBucketsViewWithManager(manager *MultiS3Manager, templates fs.FS, allowDelete bool, rootURL string) http.HandlerFunc {
+func HandleBucketsViewWithManager(manager *MultiS3Manager, templates fs.FS, allowDelete bool, rootURL string, bucketName string) http.HandlerFunc {
 	type pageData struct {
 		RootURL      string
 		Buckets      []any
@@ -66,8 +66,18 @@ func HandleBucketsViewWithManager(manager *MultiS3Manager, templates fs.FS, allo
 			// Instead of returning an HTTP error, show a user-friendly message
 			data.HasError = true
 			data.ErrorMessage = fmt.Sprintf("Unable to connect to S3 instance '%s'. Please check the credentials and try switching to another instance.", current.Name)
-			data.Buckets = make([]any, 0) // Empty buckets list
+			data.Buckets = make([]any, 0)
 		} else {
+			if bucketName != "" {
+				filtered := buckets[:0]
+				for _, b := range buckets {
+					if b.Name == bucketName {
+						filtered = append(filtered, b)
+						break
+					}
+				}
+				buckets = filtered
+			}
 			data.Buckets = make([]any, len(buckets))
 			for i, bucket := range buckets {
 				data.Buckets[i] = bucket

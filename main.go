@@ -44,6 +44,7 @@ type configuration struct {
 	Timeout       int32
 	SseType       string
 	SseKey        string
+	BucketName    string
 }
 
 func parseConfiguration() configuration {
@@ -130,6 +131,9 @@ func parseConfiguration() configuration {
 	viper.SetDefault("SSE_KEY", "")
 	sseKey := viper.GetString("SSE_KEY")
 
+	viper.SetDefault("BUCKET_NAME", "")
+	bucketName := viper.GetString("BUCKET_NAME")
+
 	return configuration{
 		S3Instances:   s3Instances,
 		AllowDelete:   allowDelete,
@@ -139,6 +143,7 @@ func parseConfiguration() configuration {
 		Timeout:       timeout,
 		SseType:       sseType,
 		SseKey:        sseKey,
+		BucketName:    bucketName,
 	}
 }
 
@@ -207,7 +212,7 @@ func main() {
 	r.Handle("/api/s3-instances", s3manager.HandleGetS3Instances(s3Manager)).Methods(http.MethodGet)
 
 	// S3 management endpoints (with instance in URL)
-	r.Handle("/{instance}/buckets", s3manager.HandleBucketsViewWithManager(s3Manager, templates, configuration.AllowDelete, rootURL)).Methods(http.MethodGet)
+	r.Handle("/{instance}/buckets", s3manager.HandleBucketsViewWithManager(s3Manager, templates, configuration.AllowDelete, rootURL, configuration.BucketName)).Methods(http.MethodGet)
 	r.PathPrefix("/{instance}/buckets/").Handler(s3manager.HandleBucketViewWithManager(s3Manager, templates, configuration.AllowDelete, configuration.ListRecursive, rootURL)).Methods(http.MethodGet)
 	r.Handle("/{instance}/api/buckets", s3manager.HandleCreateBucketWithManager(s3Manager)).Methods(http.MethodPost)
 	if configuration.AllowDelete {
