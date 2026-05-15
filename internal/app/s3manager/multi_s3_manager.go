@@ -127,38 +127,6 @@ func (m *MultiS3Manager) GetInstance(identifier string) (*S3Instance, error) {
 	return nil, fmt.Errorf("S3 instance '%s' not found", identifier)
 }
 
-// GetCurrentClient returns the currently active S3 client
-// Deprecated: Use GetInstance instead
-func (m *MultiS3Manager) GetCurrentClient() S3 {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	// Return first instance as fallback for backwards compatibility
-	if len(m.instanceOrder) > 0 {
-		return m.instances[m.instanceOrder[0]].Client
-	}
-	return nil
-}
-
-// GetCurrentInstance returns the currently active S3 instance info
-// Deprecated: Use GetInstance instead
-func (m *MultiS3Manager) GetCurrentInstance() *S3Instance {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	// Return first instance as fallback for backwards compatibility
-	if len(m.instanceOrder) > 0 {
-		return m.instances[m.instanceOrder[0]]
-	}
-	return nil
-}
-
-// SetCurrentInstance switches to the specified S3 instance
-// Deprecated: Instance selection is now URL-based
-func (m *MultiS3Manager) SetCurrentInstance(instanceID string) error {
-	return fmt.Errorf("instance switching is no longer supported - use URL-based instance selection")
-}
-
 // GetAllInstances returns all available S3 instances
 func (m *MultiS3Manager) GetAllInstances() []*S3Instance {
 	m.mu.RLock()

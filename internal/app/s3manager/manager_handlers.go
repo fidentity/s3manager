@@ -6,25 +6,25 @@ import (
 	"io/fs"
 	"net/http"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/minio/minio-go/v7"
 )
 
-// objectWithIconExtended extends objectWithIcon with additional formatting fields
-type objectWithIconExtended struct {
-	Key          string
-	Size         int64
-	SizeDisplay  string
-	LastModified time.Time
-	Owner        string
-	Icon         string
-	IsFolder     bool
-	DisplayName  string
+// withInstance extracts the instance from the request, looks it up in the manager,
+// and delegates to a handler that receives the resolved S3 client.
+func withInstance(manager *MultiS3Manager, fn func(S3) http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		instanceName := mux.Vars(r)["instance"]
+		current, err := manager.GetInstance(instanceName)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Instance not found: %s", err.Error()), http.StatusNotFound)
+			return
+		}
+		fn(current.Client)(w, r)
+	}
 }
 
 // HandleBucketsViewWithManager renders all buckets on an HTML page using MultiS3Manager.
@@ -120,134 +120,37 @@ func HandleBucketViewWithManager(manager *MultiS3Manager, templates fs.FS, allow
 
 // HandleCreateBucketWithManager creates a new bucket using MultiS3Manager.
 func HandleCreateBucketWithManager(manager *MultiS3Manager) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		instanceName := vars["instance"]
-
-		current, err := manager.GetInstance(instanceName)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Instance not found: %s", err.Error()), http.StatusNotFound)
-			return
-		}
-
-		s3 := current.Client
-		// Delegate to the original handler with the current S3 client
-		handler := HandleCreateBucket(s3)
-		handler(w, r)
-	}
+	return withInstance(manager, HandleCreateBucket)
 }
 
 // HandleDeleteBucketWithManager deletes a bucket using MultiS3Manager.
 func HandleDeleteBucketWithManager(manager *MultiS3Manager) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		instanceName := vars["instance"]
-
-		current, err := manager.GetInstance(instanceName)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Instance not found: %s", err.Error()), http.StatusNotFound)
-			return
-		}
-
-		s3 := current.Client
-		// Delegate to the original handler with the current S3 client
-		handler := HandleDeleteBucket(s3)
-		handler(w, r)
-	}
+	return withInstance(manager, HandleDeleteBucket)
 }
 
 // HandleCreateObjectWithManager uploads a new object using MultiS3Manager.
 func HandleCreateObjectWithManager(manager *MultiS3Manager, sseInfo SSEType) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		instanceName := vars["instance"]
-
-		current, err := manager.GetInstance(instanceName)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Instance not found: %s", err.Error()), http.StatusNotFound)
-			return
-		}
-
-		s3 := current.Client
-		// Delegate to the original handler with the current S3 client
-		handler := HandleCreateObject(s3, sseInfo)
-		handler(w, r)
-	}
+	return withInstance(manager, func(s3 S3) http.HandlerFunc { return HandleCreateObject(s3, sseInfo) })
 }
 
 // HandleGenerateURLWithManager generates a presigned URL using MultiS3Manager.
 func HandleGenerateURLWithManager(manager *MultiS3Manager) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		instanceName := vars["instance"]
-
-		current, err := manager.GetInstance(instanceName)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Instance not found: %s", err.Error()), http.StatusNotFound)
-			return
-		}
-
-		s3 := current.Client
-		// Delegate to the original handler with the current S3 client
-		handler := HandleGenerateURL(s3)
-		handler(w, r)
-	}
+	return withInstance(manager, HandleGenerateURL)
 }
 
 // HandleGetObjectWithManager downloads an object to the client using MultiS3Manager.
 func HandleGetObjectWithManager(manager *MultiS3Manager, forceDownload bool) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		instanceName := vars["instance"]
-
-		current, err := manager.GetInstance(instanceName)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Instance not found: %s", err.Error()), http.StatusNotFound)
-			return
-		}
-
-		s3 := current.Client
-		// Delegate to the original handler with the current S3 client
-		handler := HandleGetObject(s3, forceDownload)
-		handler(w, r)
-	}
+	return withInstance(manager, func(s3 S3) http.HandlerFunc { return HandleGetObject(s3, forceDownload) })
 }
 
 // HandleDeleteObjectWithManager deletes an object using MultiS3Manager.
 func HandleDeleteObjectWithManager(manager *MultiS3Manager) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		instanceName := vars["instance"]
-
-		current, err := manager.GetInstance(instanceName)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Instance not found: %s", err.Error()), http.StatusNotFound)
-			return
-		}
-
-		s3 := current.Client
-		// Delegate to the original handler with the current S3 client
-		handler := HandleDeleteObject(s3)
-		handler(w, r)
-	}
+	return withInstance(manager, HandleDeleteObject)
 }
 
 // HandleCheckPublicAccessWithManager checks if an object is publicly accessible using MultiS3Manager.
 func HandleCheckPublicAccessWithManager(manager *MultiS3Manager) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		instanceName := vars["instance"]
-
-		current, err := manager.GetInstance(instanceName)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Instance not found: %s", err.Error()), http.StatusNotFound)
-			return
-		}
-
-		s3 := current.Client
-		handler := HandleCheckPublicAccess(s3)
-		handler(w, r)
-	}
+	return withInstance(manager, HandleCheckPublicAccess)
 }
 
 // createBucketViewWithS3Data creates a bucket view handler that includes S3 instance data
@@ -255,7 +158,7 @@ func createBucketViewWithS3Data(s3 S3, templates fs.FS, allowDelete bool, listRe
 	type pageData struct {
 		RootURL      string
 		BucketName   string
-		Objects      []objectWithIconExtended
+		Objects      []objectWithIcon
 		AllowDelete  bool
 		Paths        []string
 		CurrentPath  string
@@ -309,7 +212,7 @@ func createBucketViewWithS3Data(s3 S3, templates fs.FS, allowDelete bool, listRe
 			}
 		}
 
-		perPage := 25
+		perPage := defaultPerPage
 		showAll := false
 		if perPageStr := r.URL.Query().Get("perPage"); perPageStr != "" {
 			if pp, err := strconv.Atoi(perPageStr); err == nil {
@@ -324,7 +227,7 @@ func createBucketViewWithS3Data(s3 S3, templates fs.FS, allowDelete bool, listRe
 		// Get search parameter
 		search := strings.TrimSpace(r.URL.Query().Get("search"))
 
-		var objs []objectWithIconExtended
+		var objs []objectWithIcon
 		hasError := false
 		errorMessage := ""
 
@@ -349,7 +252,7 @@ func createBucketViewWithS3Data(s3 S3, templates fs.FS, allowDelete bool, listRe
 
 			sizeDisplay := FormatFileSize(object.Size)
 
-			obj := objectWithIconExtended{
+			obj := objectWithIcon{
 				Key:          object.Key,
 				Size:         object.Size,
 				SizeDisplay:  sizeDisplay,
@@ -365,7 +268,7 @@ func createBucketViewWithS3Data(s3 S3, templates fs.FS, allowDelete bool, listRe
 		// Filter objects based on search query
 		if search != "" && !hasError {
 			searchLower := strings.ToLower(search)
-			filteredObjs := make([]objectWithIconExtended, 0)
+			filteredObjs := make([]objectWithIcon, 0)
 			for _, obj := range objs {
 				// Search in DisplayName and Key (case-insensitive)
 				if strings.Contains(strings.ToLower(obj.DisplayName), searchLower) ||
@@ -378,7 +281,7 @@ func createBucketViewWithS3Data(s3 S3, templates fs.FS, allowDelete bool, listRe
 
 		// Sort objects based on sortBy and sortOrder
 		if !hasError {
-			sortObjectsWithSize(objs, sortBy, sortOrder)
+			sortObjects(objs, sortBy, sortOrder)
 		}
 
 		// Calculate pagination
@@ -415,7 +318,7 @@ func createBucketViewWithS3Data(s3 S3, templates fs.FS, allowDelete bool, listRe
 			if start < totalItems && !hasError {
 				objs = objs[start:end]
 			} else if !hasError {
-				objs = []objectWithIconExtended{}
+				objs = []objectWithIcon{}
 			}
 		}
 
@@ -474,100 +377,22 @@ func createBucketViewWithS3Data(s3 S3, templates fs.FS, allowDelete bool, listRe
 	}
 }
 
-// sortObjectsWithSize sorts objects with SizeDisplay field based on the specified field and order
-func sortObjectsWithSize(objs []objectWithIconExtended, sortBy, sortOrder string) {
-	sort.Slice(objs, func(i, j int) bool {
-		var less bool
-		switch sortBy {
-		case "size":
-			less = objs[i].Size < objs[j].Size
-		case "owner":
-			less = strings.ToLower(objs[i].Owner) < strings.ToLower(objs[j].Owner)
-		case "lastModified":
-			less = objs[i].LastModified.Before(objs[j].LastModified)
-		case "key":
-			fallthrough
-		default:
-			less = strings.ToLower(objs[i].DisplayName) < strings.ToLower(objs[j].DisplayName)
-		}
-
-		if sortOrder == "desc" {
-			return !less
-		}
-		return less
-	})
-}
-
 // HandleBulkDeleteObjectsWithManager deletes multiple objects using MultiS3Manager.
 func HandleBulkDeleteObjectsWithManager(manager *MultiS3Manager) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		instanceName := vars["instance"]
-
-		current, err := manager.GetInstance(instanceName)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Instance not found: %s", err.Error()), http.StatusNotFound)
-			return
-		}
-
-		s3 := current.Client
-		// Delegate to the bulk delete handler with the current S3 client
-		handler := HandleBulkDeleteObjects(s3)
-		handler(w, r)
-	}
+	return withInstance(manager, HandleBulkDeleteObjects)
 }
 
 // HandleGetBucketPolicyWithManager retrieves the policy for a bucket using MultiS3Manager.
 func HandleGetBucketPolicyWithManager(manager *MultiS3Manager) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		instanceName := vars["instance"]
-
-		current, err := manager.GetInstance(instanceName)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Instance not found: %s", err.Error()), http.StatusNotFound)
-			return
-		}
-
-		s3 := current.Client
-		handler := HandleGetBucketPolicy(s3)
-		handler(w, r)
-	}
+	return withInstance(manager, HandleGetBucketPolicy)
 }
 
 // HandlePutBucketPolicyWithManager sets the policy for a bucket using MultiS3Manager.
 func HandlePutBucketPolicyWithManager(manager *MultiS3Manager) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		instanceName := vars["instance"]
-
-		current, err := manager.GetInstance(instanceName)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Instance not found: %s", err.Error()), http.StatusNotFound)
-			return
-		}
-
-		s3 := current.Client
-		handler := HandlePutBucketPolicy(s3)
-		handler(w, r)
-	}
+	return withInstance(manager, HandlePutBucketPolicy)
 }
 
 // HandleBulkDownloadObjectsWithManager downloads multiple objects as a ZIP using MultiS3Manager.
 func HandleBulkDownloadObjectsWithManager(manager *MultiS3Manager) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		instanceName := vars["instance"]
-
-		current, err := manager.GetInstance(instanceName)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Instance not found: %s", err.Error()), http.StatusNotFound)
-			return
-		}
-
-		s3 := current.Client
-		// Delegate to the bulk download handler with the current S3 client
-		handler := HandleBulkDownloadObjects(s3)
-		handler(w, r)
-	}
+	return withInstance(manager, HandleBulkDownloadObjects)
 }

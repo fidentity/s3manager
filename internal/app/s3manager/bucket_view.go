@@ -16,10 +16,13 @@ import (
 	"github.com/minio/minio-go/v7"
 )
 
+const defaultPerPage = 25
+
 // objectWithIcon represents an S3 object with additional display properties
 type objectWithIcon struct {
 	Key          string
 	Size         int64
+	SizeDisplay  string
 	LastModified time.Time
 	Owner        string
 	Icon         string
@@ -82,7 +85,7 @@ func HandleBucketView(s3 S3, templates fs.FS, allowDelete bool, listRecursive bo
 			}
 		}
 
-		perPage := 25
+		perPage := defaultPerPage
 		if perPageStr := r.URL.Query().Get("perPage"); perPageStr != "" {
 			if pp, err := strconv.Atoi(perPageStr); err == nil && pp > 0 {
 				perPage = pp
@@ -107,6 +110,7 @@ func HandleBucketView(s3 S3, templates fs.FS, allowDelete bool, listRecursive bo
 			obj := objectWithIcon{
 				Key:          object.Key,
 				Size:         object.Size,
+				SizeDisplay:  FormatFileSize(object.Size),
 				LastModified: object.LastModified,
 				Owner:        object.Owner.DisplayName,
 				Icon:         icon(object.Key),

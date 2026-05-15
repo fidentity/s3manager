@@ -22,21 +22,8 @@ var templateFS embed.FS
 //go:embed web/static
 var staticFS embed.FS
 
-type s3InstanceConfig struct {
-	Name                string
-	Endpoint            string
-	UseIam              bool
-	IamEndpoint         string
-	AccessKeyID         string
-	SecretAccessKey     string
-	Region              string
-	UseSSL              bool
-	SkipSSLVerification bool
-	SignatureType       string
-}
-
 type configuration struct {
-	S3Instances   []s3InstanceConfig
+	S3Instances   []s3manager.S3InstanceConfig
 	AllowDelete   bool
 	ForceDownload bool
 	ListRecursive bool
@@ -51,7 +38,7 @@ func parseConfiguration() configuration {
 	viper.AutomaticEnv()
 
 	// Parse S3 instances from numbered environment variables
-	var s3Instances []s3InstanceConfig
+	var s3Instances []s3manager.S3InstanceConfig
 	for i := 1; ; i++ {
 		prefix := fmt.Sprintf("%d_", i)
 		name := viper.GetString(prefix + "NAME")
@@ -93,7 +80,7 @@ func parseConfiguration() configuration {
 			}
 		}
 
-		s3Instances = append(s3Instances, s3InstanceConfig{
+		s3Instances = append(s3Instances, s3manager.S3InstanceConfig{
 			Name:                name,
 			Endpoint:            endpoint,
 			UseIam:              useIam,
@@ -164,25 +151,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Convert configuration to s3manager format
-	var s3Configs []s3manager.S3InstanceConfig
-	for _, instance := range configuration.S3Instances {
-		s3Configs = append(s3Configs, s3manager.S3InstanceConfig{
-			Name:                instance.Name,
-			Endpoint:            instance.Endpoint,
-			UseIam:              instance.UseIam,
-			IamEndpoint:         instance.IamEndpoint,
-			AccessKeyID:         instance.AccessKeyID,
-			SecretAccessKey:     instance.SecretAccessKey,
-			Region:              instance.Region,
-			UseSSL:              instance.UseSSL,
-			SkipSSLVerification: instance.SkipSSLVerification,
-			SignatureType:       instance.SignatureType,
-		})
-	}
-
 	// Set up Multi S3 Manager
-	s3Manager, err := s3manager.NewMultiS3Manager(s3Configs)
+	s3Manager, err := s3manager.NewMultiS3Manager(configuration.S3Instances)
 	if err != nil {
 		log.Fatalln(fmt.Errorf("error creating multi s3 manager: %w", err))
 	}
