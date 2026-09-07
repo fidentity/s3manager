@@ -88,6 +88,7 @@ func parseS3Instances() []s3manager.S3InstanceConfig {
 		viper.SetDefault(prefix+"ENDPOINT", "s3.amazonaws.com")
 		viper.SetDefault(prefix+"USE_SSL", true)
 		viper.SetDefault(prefix+"SIGNATURE_TYPE", "V4")
+		viper.SetDefault(prefix+"BUCKET_LOOKUP", "Auto")
 
 		instance := s3manager.S3InstanceConfig{
 			Name:                name,
@@ -100,6 +101,7 @@ func parseS3Instances() []s3manager.S3InstanceConfig {
 			UseSSL:              viper.GetBool(prefix + "USE_SSL"),
 			SkipSSLVerification: viper.GetBool(prefix + "SKIP_SSL_VERIFICATION"),
 			SignatureType:       viper.GetString(prefix + "SIGNATURE_TYPE"),
+			BucketLookup:        viper.GetString(prefix + "BUCKET_LOOKUP"),
 		}
 
 		if !instance.UseIam {

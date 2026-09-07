@@ -85,6 +85,33 @@ func TestNewS3Instances(t *testing.T) {
 			},
 			expectError: true,
 		},
+		{
+			it: "creates an instance with a bucket lookup type",
+			configs: []s3manager.S3InstanceConfig{
+				{
+					Name:            "test",
+					Endpoint:        "localhost:9000",
+					AccessKeyID:     "key",
+					SecretAccessKey: "secret",
+					SignatureType:   "V4",
+					BucketLookup:    "DNS",
+				},
+			},
+		},
+		{
+			it: "returns an error for an invalid bucket lookup type",
+			configs: []s3manager.S3InstanceConfig{
+				{
+					Name:            "test",
+					Endpoint:        "localhost:9000",
+					AccessKeyID:     "key",
+					SecretAccessKey: "secret",
+					SignatureType:   "V4",
+					BucketLookup:    "INVALID",
+				},
+			},
+			expectError: true,
+		},
 	}
 
 	for _, tc := range cases {

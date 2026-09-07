@@ -70,6 +70,7 @@ configured.
 - `USE_SSL`: Whether your S3 server uses SSL or not (defaults to `true`)
 - `SKIP_SSL_VERIFICATION`: Whether the HTTP client should skip SSL verification (defaults to `false`)
 - `SIGNATURE_TYPE`: The signature type to be used (defaults to `V4`; valid values are `V2, V4, V4Streaming, Anonymous`)
+- `BUCKET_LOOKUP`: How buckets are addressed in requests (defaults to `Auto`; valid values are `Auto, DNS, Path`). `DNS` uses virtual-hosted–style addressing (`bucket.endpoint`), `Path` uses path-style addressing (`endpoint/bucket`) and `Auto` picks virtual-hosted style for Amazon and Google endpoints and path style for all others. Set it to `DNS` if your provider answers with `Virtual host domain is required while accessing a specific bucket`
 
 #### Application
 

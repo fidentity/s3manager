@@ -24,6 +24,7 @@ type S3InstanceConfig struct {
 	UseSSL              bool
 	SkipSSLVerification bool
 	SignatureType       string
+	BucketLookup        string
 }
 
 // S3Instance is a configured S3 instance and its client.
@@ -43,6 +44,17 @@ var signatureTypes = map[string]credentials.SignatureType{
 	"V4":          credentials.SignatureV4,
 	"V4Streaming": credentials.SignatureV4Streaming,
 	"Anonymous":   credentials.SignatureAnonymous,
+}
+
+// bucketLookups maps the BUCKET_LOOKUP configuration value to its S3
+// equivalent. It decides whether a bucket is addressed in the path
+// (endpoint/bucket) or in the host name (bucket.endpoint); `Auto` lets
+// minio-go pick, which means host-name style for Amazon and Google endpoints
+// and path style everywhere else.
+var bucketLookups = map[string]minio.BucketLookupType{
+	"Auto": minio.BucketLookupAuto,
+	"DNS":  minio.BucketLookupDNS,
+	"Path": minio.BucketLookupPath,
 }
 
 // NewS3Instances creates a client for every given configuration. Instances are
@@ -83,6 +95,14 @@ func newS3Client(config S3InstanceConfig) (S3, error) {
 			return nil, fmt.Errorf("invalid SIGNATURE_TYPE: %s", config.SignatureType)
 		}
 		opts.Creds = credentials.NewStatic(config.AccessKeyID, config.SecretAccessKey, "", signatureType)
+	}
+
+	if config.BucketLookup != "" {
+		bucketLookup, ok := bucketLookups[config.BucketLookup]
+		if !ok {
+			return nil, fmt.Errorf("invalid BUCKET_LOOKUP: %s", config.BucketLookup)
+		}
+		opts.BucketLookup = bucketLookup
 	}
 
 	if config.UseSSL && config.SkipSSLVerification {
