@@ -67,30 +67,31 @@ func parseConfiguration() configuration {
 }
 
 // parseS3Instances reads the S3 instances from numbered environment variables
-// (1_NAME, 1_ENDPOINT, …), stopping at the first number that isn't configured.
-// A single instance may also be configured without a number, in which case it
-// is named "Default".
+// (S3_1_NAME, S3_1_ENDPOINT, …), stopping at the first number that has no
+// NAME. A single instance may also be configured without a number, in which
+// case it is named "Default".
 func parseS3Instances() []s3manager.S3InstanceConfig {
 	var instances []s3manager.S3InstanceConfig
 
 	for i := 1; ; i++ {
-		prefix := fmt.Sprintf("%d_", i)
+		prefix := fmt.Sprintf("S3_%d_", i)
 		name := viper.GetString(prefix + "NAME")
 		if i == 1 && name == "" {
+			// The unnumbered form is how earlier versions of the app were
+			// configured.
 			prefix, name = "", "Default"
 		}
-
-		endpoint := viper.GetString(prefix + "ENDPOINT")
-		if name == "" || endpoint == "" {
+		if name == "" {
 			return instances
 		}
 
+		viper.SetDefault(prefix+"ENDPOINT", "s3.amazonaws.com")
 		viper.SetDefault(prefix+"USE_SSL", true)
 		viper.SetDefault(prefix+"SIGNATURE_TYPE", "V4")
 
 		instance := s3manager.S3InstanceConfig{
 			Name:                name,
-			Endpoint:            endpoint,
+			Endpoint:            viper.GetString(prefix + "ENDPOINT"),
 			UseIam:              viper.GetBool(prefix + "USE_IAM"),
 			IamEndpoint:         viper.GetString(prefix + "IAM_ENDPOINT"),
 			AccessKeyID:         viper.GetString(prefix + "ACCESS_KEY_ID"),

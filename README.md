@@ -30,21 +30,21 @@ The application is configured with environment variables.
 #### S3 instances
 
 Every S3 account the app should manage is configured with a numbered set of
-variables, starting at `1_`. The app stops looking at the first number that has
-no `NAME` or no `ENDPOINT`, so the numbering must not have gaps. Each instance
-appears in the app under its `NAME` and is reachable under `/<NAME>/buckets`
-(or `/<NUMBER>/buckets`), so pick names that work in a URL:
+variables, starting at `S3_1_`. The app stops looking at the first number that
+has no `NAME`, so the numbering must not have gaps. Each instance appears in
+the app under its `NAME` and is reachable under `/<NAME>/buckets` (or
+`/<NUMBER>/buckets`), so pick names that work in a URL:
 
 ```shell
-1_NAME=production
-1_ENDPOINT=s3.amazonaws.com
-1_ACCESS_KEY_ID=XXX
-1_SECRET_ACCESS_KEY=xxx
+S3_1_NAME=production
+S3_1_ENDPOINT=s3.amazonaws.com
+S3_1_ACCESS_KEY_ID=XXX
+S3_1_SECRET_ACCESS_KEY=xxx
 
-2_NAME=backups
-2_ENDPOINT=minio.example.com:9000
-2_ACCESS_KEY_ID=YYY
-2_SECRET_ACCESS_KEY=yyy
+S3_2_NAME=backups
+S3_2_ENDPOINT=minio.example.com:9000
+S3_2_ACCESS_KEY_ID=YYY
+S3_2_SECRET_ACCESS_KEY=yyy
 ```
 
 A single instance may also be configured without a number (it is then named
@@ -56,11 +56,12 @@ ACCESS_KEY_ID=XXX
 SECRET_ACCESS_KEY=xxx
 ```
 
-The variables below are read per instance, either with a `N_` prefix or, for a
-single unnamed instance, without one. At least one instance must be configured.
+The variables below are read per instance, either with an `S3_N_` prefix or,
+for a single unnamed instance, without one. At least one instance must be
+configured.
 
 - `NAME`: The name the instance is shown and addressed under (required in the numbered form; a single unnamed instance is called `Default`)
-- `ENDPOINT`: The endpoint of your S3 server (required, for example `s3.amazonaws.com`)
+- `ENDPOINT`: The endpoint of your S3 server (defaults to `s3.amazonaws.com`)
 - `REGION`: The region of your S3 server (defaults to `""`)
 - `ACCESS_KEY_ID`: Your S3 access key ID (required) (works only if `USE_IAM` is `false`)
 - `SECRET_ACCESS_KEY`: Your S3 secret access key (required) (works only if `USE_IAM` is `false`)

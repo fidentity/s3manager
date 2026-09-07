@@ -6,17 +6,17 @@ services:
       - 8080:8080
     environment:
       # S3 Instance 1: my-first-instance
-      - 1_NAME=my-first-instance
-      - 1_ENDPOINT=s3:9000
-      - 1_ACCESS_KEY_ID=s3manager
-      - 1_SECRET_ACCESS_KEY=s3manager
-      - 1_USE_SSL=false
+      - S3_1_NAME=my-first-instance
+      - S3_1_ENDPOINT=s3:9000
+      - S3_1_ACCESS_KEY_ID=s3manager
+      - S3_1_SECRET_ACCESS_KEY=s3manager
+      - S3_1_USE_SSL=false
       # S3 Instance 2: my-second-instance
-      - 2_NAME=my-second-instance
-      - 2_ENDPOINT=s3-2:9000
-      - 2_ACCESS_KEY_ID=s3manager2
-      - 2_SECRET_ACCESS_KEY=s3manager2
-      - 2_USE_SSL=false
+      - S3_2_NAME=my-second-instance
+      - S3_2_ENDPOINT=s3-2:9000
+      - S3_2_ACCESS_KEY_ID=s3manager2
+      - S3_2_SECRET_ACCESS_KEY=s3manager2
+      - S3_2_USE_SSL=false
     depends_on:
       - s3
       - s3-2

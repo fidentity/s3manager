@@ -54,7 +54,7 @@ HTTP request
 
 ### Configuration
 
-Instances are configured via numbered environment variables (`1_ENDPOINT`, `1_ACCESS_KEY_ID`, …) or a single unnamed set for backward compatibility. Viper is used to read all config. `ROOT_URL` supports reverse-proxy deployments with a path prefix. The feature flags the handlers care about are bundled into a single `s3manager.Options` value that `main.go` fills in and passes down.
+Instances are configured via numbered environment variables (`S3_1_ENDPOINT`, `S3_1_ACCESS_KEY_ID`, …) or a single unnamed set for backward compatibility. Viper is used to read all config. `ROOT_URL` supports reverse-proxy deployments with a path prefix. The feature flags the handlers care about are bundled into a single `s3manager.Options` value that `main.go` fills in and passes down.
 
 ## Testing
 
