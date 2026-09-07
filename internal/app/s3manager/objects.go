@@ -74,7 +74,7 @@ func listAllObjects(ctx context.Context, s3 S3, bucketName, prefix string, listR
 		opts.WithVersions = false
 	}
 
-	objs, err := collectObjects(ctx, s3, bucketName, prefix, maxScanObjects+1, opts)
+	objs, err := listWithV1Fallback(ctx, s3, bucketName, prefix, maxScanObjects+1, opts)
 	if err != nil {
 		return objectListing{}, err
 	}
@@ -113,7 +113,7 @@ func listObjectPage(ctx context.Context, s3 S3, bucketName, prefix, cursor strin
 		MaxKeys: perPage + 1,
 	}
 
-	objs, err := collectObjects(ctx, s3, bucketName, prefix, perPage+1, opts)
+	objs, err := listWithV1Fallback(ctx, s3, bucketName, prefix, perPage+1, opts)
 	if err != nil {
 		return objectListing{}, err
 	}
@@ -143,6 +143,32 @@ func nextCursor(obj objectWithIcon) string {
 	}
 
 	return obj.Key
+}
+
+// listWithV1Fallback lists a prefix and, when that comes back empty, lists it
+// once more as a ListObjects V1 request. minio-go always speaks V2 and never
+// falls back on its own, while some S3-compatible providers answer a V2 listing
+// they don't implement with an empty result instead of an error — which is
+// indistinguishable from an empty prefix and makes a bucket full of objects
+// look empty, with nothing to report to the user. The retry costs one extra
+// round trip on prefixes that really are empty, and turns that silent case into
+// the objects that are actually there. StartAfter doubles as V1's marker, so a
+// cursor-paged listing survives the switch. If the retry itself fails, the
+// empty V2 listing stands: a provider that rejects V1 is one that meant its
+// empty answer.
+func listWithV1Fallback(ctx context.Context, s3 S3, bucketName, prefix string, limit int, opts minio.ListObjectsOptions) ([]objectWithIcon, error) {
+	objs, err := collectObjects(ctx, s3, bucketName, prefix, limit, opts)
+	if err != nil || len(objs) > 0 {
+		return objs, err
+	}
+
+	opts.UseV1 = true
+	v1Objs, err := collectObjects(ctx, s3, bucketName, prefix, limit, opts)
+	if err != nil {
+		return objs, nil
+	}
+
+	return v1Objs, nil
 }
 
 // collectObjects drains up to limit objects off an S3 ListObjects channel,

@@ -205,6 +205,47 @@ func TestHandleBucketView(t *testing.T) {
 			unexpectedInBody:     []string{"Version ID"},
 		},
 		{
+			it: "falls back to a V1 listing when the V2 listing returns nothing",
+			listObjectsFunc: func(_ context.Context, _ string, opts minio.ListObjectsOptions) <-chan minio.ObjectInfo {
+				// Some S3-compatible providers answer a ListObjects V2 request
+				// they don't implement with an empty result instead of erroring.
+				if !opts.UseV1 {
+					return objectChan()
+				}
+				return objectChan(minio.ObjectInfo{Key: "FILE-NAME"})
+			},
+			expectedStatusCode:   http.StatusOK,
+			expectedBodyContains: []string{"FILE-NAME"},
+			unexpectedInBody:     []string{"No objects in"},
+		},
+		{
+			it: "falls back to a V1 listing in a full listing too",
+			listObjectsFunc: func(_ context.Context, _ string, opts minio.ListObjectsOptions) <-chan minio.ObjectInfo {
+				if opts.WithVersions || !opts.UseV1 {
+					return objectChan()
+				}
+				return objectChan(minio.ObjectInfo{Key: "FILE-NAME"})
+			},
+			// Showing versions takes the full-listing path instead of the
+			// cursor-paged one.
+			showVersions:         true,
+			expectedStatusCode:   http.StatusOK,
+			expectedBodyContains: []string{"FILE-NAME"},
+			unexpectedInBody:     []string{"No objects in"},
+		},
+		{
+			it: "keeps the empty listing when the V1 fallback fails",
+			listObjectsFunc: func(_ context.Context, _ string, opts minio.ListObjectsOptions) <-chan minio.ObjectInfo {
+				if !opts.UseV1 {
+					return objectChan()
+				}
+				return objectChan(minio.ObjectInfo{Err: errS3})
+			},
+			expectedStatusCode:   http.StatusOK,
+			expectedBodyContains: []string{"No objects in"},
+			unexpectedInBody:     []string{"Unable to list objects"},
+		},
+		{
 			it: "does not warn about unavailable versions for an empty bucket",
 			listObjectsFunc: func(context.Context, string, minio.ListObjectsOptions) <-chan minio.ObjectInfo {
 				return objectChan()
