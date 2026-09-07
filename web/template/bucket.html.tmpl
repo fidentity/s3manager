@@ -95,6 +95,18 @@
     </article>
     {{ end }}
 
+    {{ if .Truncated }}
+    <article class="tertiary-container round border no-elevate">
+        <nav>
+            <i>warning</i>
+            <div class="max">
+                <h6 class="small">Partial listing</h6>
+                <p class="no-margin small-text">This location holds more than {{ .MaxScanObjects }} objects. Sorting, searching and the object count cover only the first {{ .MaxScanObjects }} of them. Narrow the listing down with a search or by opening a folder to reach the rest.</p>
+            </div>
+        </nav>
+    </article>
+    {{ end }}
+
     <nav class="wrap">
         <div class="field label prefix {{ if .Search }}suffix {{ end }}border small max" style="max-inline-size: 24rem;">
             <i>search</i>
@@ -276,11 +288,22 @@
         </div>
 
         <span class="small-text secondary-text">
-            Showing {{ if gt .TotalItems 0 }}{{ add (mul (sub .Page 1) .PerPage) 1 }}–{{ min (mul .Page .PerPage) .TotalItems }}{{ else }}0{{ end }} of {{ .TotalItems }}
+            Showing {{ .FirstItem }}{{ if gt .LastItem .FirstItem }}–{{ .LastItem }}{{ end }}{{ if not .CursorPaging }} of {{ .TotalItems }}{{ end }}
         </span>
 
         <div class="max"></div>
 
+        {{ if .CursorPaging }}
+        <!-- S3 lists a page at a time without ever counting the objects it did
+             not return, so this pager can only step forwards and back through
+             the cursor trail — there is no total and no last page to jump to. -->
+        <nav class="no-space">
+            <button class="circle transparent" onclick="goToFirstPage()" {{ if not .HasPrevPage }}disabled{{ end }}><i>first_page</i></button>
+            <button class="circle transparent" onclick="goToPrevPage()" {{ if not .HasPrevPage }}disabled{{ end }}><i>chevron_left</i></button>
+            <button class="circle primary">{{ .Page }}</button>
+            <button class="circle transparent" onclick="goToNextPage('{{ .NextCursor }}')" {{ if not .HasNextPage }}disabled{{ end }}><i>chevron_right</i></button>
+        </nav>
+        {{ else }}
         <nav class="no-space">
             <button class="circle transparent" onclick="changePage(1)" {{ if not .HasPrevPage }}disabled{{ end }}><i>first_page</i></button>
             <button class="circle transparent" onclick="changePage({{ sub .Page 1 }})" {{ if not .HasPrevPage }}disabled{{ end }}><i>chevron_left</i></button>
@@ -313,6 +336,7 @@
             <button class="circle transparent" onclick="changePage({{ add .Page 1 }})" {{ if not .HasNextPage }}disabled{{ end }}><i>chevron_right</i></button>
             <button class="circle transparent" onclick="changePage({{ .TotalPages }})" {{ if not .HasNextPage }}disabled{{ end }}><i>last_page</i></button>
         </nav>
+        {{ end }}
     </nav>
 
     {{ else }}
@@ -567,18 +591,27 @@
         window.location.href = url.toString();
     }
 
+    // Anything that changes what is listed starts over on the first page, which
+    // means dropping the cursor trail as well as the page number: the two pagers
+    // navigate differently and a trail collected under one listing says nothing
+    // about the other.
+    function resetPaging(params) {
+        params.set("page", "1");
+        params.delete("cursor");
+    }
+
     function performSearch() {
         const value = document.getElementById("search-input").value.trim();
         navigate(params => {
             value ? params.set("search", value) : params.delete("search");
-            params.set("page", "1");
+            resetPaging(params);
         });
     }
 
     function clearSearch() {
         navigate(params => {
             params.delete("search");
-            params.set("page", "1");
+            resetPaging(params);
         });
     }
 
@@ -586,11 +619,30 @@
         navigate(params => params.set("page", page));
     }
 
+    // The cursor trail is one "cursor" parameter per page already left behind,
+    // so its length is the current page number minus one.
+    function goToFirstPage() {
+        navigate(params => params.delete("cursor"));
+    }
+
+    function goToPrevPage() {
+        navigate(params => {
+            const trail = params.getAll("cursor");
+            trail.pop();
+            params.delete("cursor");
+            trail.forEach(cursor => params.append("cursor", cursor));
+        });
+    }
+
+    function goToNextPage(cursor) {
+        navigate(params => params.append("cursor", cursor));
+    }
+
     function changePerPage() {
         const perPage = document.getElementById("perPageSelect").value;
         navigate(params => {
             params.set("perPage", perPage);
-            params.set("page", "1");
+            resetPaging(params);
         });
     }
 
@@ -603,7 +655,7 @@
         navigate(params => {
             params.set("sortBy", field);
             params.set("sortOrder", order);
-            params.set("page", "1");
+            resetPaging(params);
         });
     }
 

@@ -87,6 +87,21 @@ These variables apply to the whole app and are never prefixed:
 - `TIMEOUT`: The read and write timeout in seconds (default to `600` - 10 minutes)
 - `ROOT_URL`: A root URL prefix if running behind a reverse proxy (defaults to unset)
 
+### Browsing large buckets
+
+The default bucket view asks S3 for one page of objects at a time, so opening a
+bucket and stepping through it costs the same whether it holds ten objects or ten
+million. Because S3 can only list keys in ascending order and offers no search of
+its own, that page-at-a-time listing is possible only for the default view: it is
+sorted by name ascending and unsearched. Such a view has no total object count
+and no last page to jump to, since S3 never reports how much it did not return.
+
+Sorting by another column, sorting descending, searching or choosing `All` items
+per page needs the whole location in memory instead, and so does `SHOW_VERSIONS`.
+Those listings stop after 10,000 objects and say so on the page — their counting,
+sorting and searching then cover only that many. Narrow the listing down with a
+search or by opening a folder to reach the rest.
+
 ### Build and Run Locally
 
 1.  Run `make build`

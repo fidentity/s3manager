@@ -25,6 +25,21 @@ type listingQuery struct {
 	PerPage   int
 	ShowAll   bool
 	Search    string
+	// Cursors is the trail of the cursors of the preceding pages, one per page,
+	// as collected by the pager of a cursor-paged view. Keeping the whole trail
+	// in the URL rather than just the current cursor is what lets such a view
+	// still number its pages and step back to the previous one.
+	Cursors []string
+}
+
+// Cursor is the key the current page's listing resumes after, empty on the first
+// page.
+func (q listingQuery) Cursor() string {
+	if len(q.Cursors) == 0 {
+		return ""
+	}
+
+	return q.Cursors[len(q.Cursors)-1]
 }
 
 // HandleBucketView shows the details page of a bucket.
@@ -47,6 +62,8 @@ func HandleBucketView(instances S3Instances, templates fs.FS, opts Options) http
 		ShowVersions        bool
 		VersionsUnavailable bool
 		ShowMetadata        bool
+		Truncated           bool
+		MaxScanObjects      int
 	}
 
 	renderer := newPageRenderer(templates, "bucket.html.tmpl")
@@ -65,21 +82,32 @@ func HandleBucketView(instances S3Instances, templates fs.FS, opts Options) http
 
 		query := parseListingQuery(r.URL.Query())
 		data := pageData{
-			RootURL:      opts.RootURL,
-			BucketName:   bucketName,
-			CurrentPath:  path,
-			Paths:        removeEmptyStrings(strings.Split(path, "/")),
-			Endpoint:     instance.Client.EndpointURL().String(),
-			AllowDelete:  opts.AllowDelete,
-			CurrentS3:    instance,
-			S3Instances:  instances,
-			SortBy:       query.SortBy,
-			SortOrder:    query.SortOrder,
-			Search:       query.Search,
-			ShowMetadata: opts.ShowMetadata,
+			RootURL:        opts.RootURL,
+			BucketName:     bucketName,
+			CurrentPath:    path,
+			Paths:          removeEmptyStrings(strings.Split(path, "/")),
+			Endpoint:       instance.Client.EndpointURL().String(),
+			AllowDelete:    opts.AllowDelete,
+			CurrentS3:      instance,
+			S3Instances:    instances,
+			SortBy:         query.SortBy,
+			SortOrder:      query.SortOrder,
+			Search:         query.Search,
+			ShowMetadata:   opts.ShowMetadata,
+			MaxScanObjects: maxScanObjects,
 		}
 
-		objs, versionsShown, err := listObjects(r.Context(), instance.Client, bucketName, path, opts.ListRecursive, opts.ShowVersions)
+		// The default view is served one page at a time straight from S3, which
+		// keeps its cost independent of how many objects the bucket holds. Every
+		// other view needs the whole prefix in memory to do its job.
+		cursorPaging := cursorPagingPossible(query, opts)
+
+		var listing objectListing
+		if cursorPaging {
+			listing, err = listObjectPage(r.Context(), instance.Client, bucketName, path, query.Cursor(), opts.ListRecursive, query.PerPage)
+		} else {
+			listing, err = listAllObjects(r.Context(), instance.Client, bucketName, path, opts.ListRecursive, opts.ShowVersions)
+		}
 		if err != nil {
 			// A failed listing is reported on the page itself so that the user
 			// can switch instances or go back instead of being stuck on an
@@ -90,21 +118,41 @@ func HandleBucketView(instances S3Instances, templates fs.FS, opts Options) http
 			return
 		}
 
-		if versionsShown {
-			annotateVersionGroups(objs)
-		}
-		if query.Search != "" {
-			objs = filterObjects(objs, query.Search)
+		if cursorPaging {
+			data.objectPage = cursorPage(listing, query)
+		} else {
+			if listing.VersionsShown {
+				annotateVersionGroups(listing.Objects)
+			}
+			if query.Search != "" {
+				listing.Objects = filterObjects(listing.Objects, query.Search)
+			}
+			data.objectPage = paginateObjects(listing.Objects, query, listing.VersionsShown)
 		}
 
-		data.objectPage = paginateObjects(objs, query, versionsShown)
-		data.ShowVersions = versionsShown
+		data.ShowVersions = listing.VersionsShown
+		data.Truncated = listing.Truncated
 		// Only warn about unavailable versions when there is content to show;
 		// an empty bucket legitimately produces an empty versioned listing.
-		data.VersionsUnavailable = opts.ShowVersions && !versionsShown && len(objs) > 0
+		data.VersionsUnavailable = opts.ShowVersions && !listing.VersionsShown && len(listing.Objects) > 0
 
 		renderer(w, data)
 	}
+}
+
+// cursorPagingPossible reports whether a request can be served by listing only
+// the page it shows. S3 lists keys in ascending lexicographic order and can
+// resume after a given key, but it cannot sort by anything else, cannot list
+// backwards and has no search — so sorting by another column, sorting
+// descending, searching and asking for every object at once all still need the
+// full listing. So does a versioned listing, whose version groups have to be
+// assembled before they can be split into pages.
+func cursorPagingPossible(query listingQuery, opts Options) bool {
+	return !opts.ShowVersions &&
+		!query.ShowAll &&
+		query.Search == "" &&
+		query.SortBy == "key" &&
+		query.SortOrder == "asc"
 }
 
 // parseBucketPath extracts the bucket name and the path within the bucket from
@@ -127,6 +175,7 @@ func parseListingQuery(params url.Values) listingQuery {
 		Page:      1,
 		PerPage:   defaultPerPage,
 		Search:    strings.TrimSpace(params.Get("search")),
+		Cursors:   removeEmptyStrings(params["cursor"]),
 	}
 
 	if query.SortBy == "" {

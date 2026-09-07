@@ -12,8 +12,6 @@ import (
 var templateFuncs = template.FuncMap{
 	"add": func(a, b int) int { return a + b },
 	"sub": func(a, b int) int { return a - b },
-	"mul": func(a, b int) int { return a * b },
-	"min": func(a, b int) int { return min(a, b) },
 	"iterate": func(start, end int) []int {
 		result := make([]int, 0, max(end-start, 0))
 		for i := start; i < end; i++ {

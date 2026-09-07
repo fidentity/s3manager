@@ -6,9 +6,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/cloudlena/s3manager/internal/app/s3manager"
@@ -303,4 +305,232 @@ func TestHandleBucketView(t *testing.T) {
 			}
 		})
 	}
+}
+
+// objectStream serves objects on a ListObjects channel and gives up as soon as
+// the context is cancelled, the way minio's own listing does when the consumer
+// stops reading.
+func objectStream(ctx context.Context, objects []minio.ObjectInfo) <-chan minio.ObjectInfo {
+	objCh := make(chan minio.ObjectInfo)
+	go func() {
+		defer close(objCh)
+		for _, object := range objects {
+			select {
+			case <-ctx.Done():
+				return
+			case objCh <- object:
+			}
+		}
+	}()
+
+	return objCh
+}
+
+// fakeListing serves a bucket listing of fixed keys, honouring StartAfter the
+// way S3 does, and records the options every call was made with.
+type fakeListing struct {
+	mu    sync.Mutex
+	calls []minio.ListObjectsOptions
+}
+
+// listFunc returns a ListObjects implementation serving the given keys. They are
+// served in the order given, which is not necessarily key order: a delimited S3
+// listing reports a batch's objects before its folders.
+func (f *fakeListing) listFunc(keys ...string) func(context.Context, string, minio.ListObjectsOptions) <-chan minio.ObjectInfo {
+	return func(ctx context.Context, _ string, opts minio.ListObjectsOptions) <-chan minio.ObjectInfo {
+		f.mu.Lock()
+		f.calls = append(f.calls, opts)
+		f.mu.Unlock()
+
+		var objects []minio.ObjectInfo
+		for _, key := range keys {
+			if key > opts.StartAfter {
+				objects = append(objects, minio.ObjectInfo{Key: key})
+			}
+		}
+
+		return objectStream(ctx, objects)
+	}
+}
+
+// only returns the single set of options the listing was asked for, failing if
+// it was called any other number of times.
+func (f *fakeListing) only(t *testing.T) minio.ListObjectsOptions {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if len(f.calls) != 1 {
+		t.Fatalf("expected exactly one listing, got %d", len(f.calls))
+	}
+
+	return f.calls[0]
+}
+
+// paddedKeys returns count keys that sort in the order they are generated.
+func paddedKeys(count int) []string {
+	keys := make([]string, 0, count)
+	for i := range count {
+		keys = append(keys, fmt.Sprintf("object-%05d", i))
+	}
+
+	return keys
+}
+
+// getBucketView renders the bucket view of a bucket served by the given listing
+// and returns the response body.
+func getBucketView(t *testing.T, listObjects func(context.Context, string, minio.ListObjectsOptions) <-chan minio.ObjectInfo, query url.Values) string {
+	t.Helper()
+	is := is.New(t)
+
+	s3 := &mocks.S3Mock{
+		ListObjectsFunc: listObjects,
+		EndpointURLFunc: mustParseURLFunc("http://localhost:9000"),
+	}
+	instances := s3manager.S3Instances{{ID: "1", Name: "primary", Client: s3}}
+	templates := os.DirFS(filepath.Join("..", "..", "..", "web", "template"))
+
+	r := mux.NewRouter()
+	r.PathPrefix("/{instance}/buckets/").Handler(s3manager.HandleBucketView(instances, templates, s3manager.Options{
+		AllowDelete: true,
+	})).Methods(http.MethodGet)
+
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/primary/buckets/BUCKET-NAME/?" + query.Encode())
+	is.NoErr(err)
+	defer func() {
+		err = resp.Body.Close()
+		is.NoErr(err)
+	}()
+	body, err := io.ReadAll(resp.Body)
+	is.NoErr(err)
+	is.Equal(http.StatusOK, resp.StatusCode) // status code
+
+	return string(body)
+}
+
+func TestHandleBucketViewPaging(t *testing.T) {
+	t.Parallel()
+
+	t.Run("asks S3 for a single page of the default view", func(t *testing.T) {
+		t.Parallel()
+		is := is.New(t)
+
+		listing := &fakeListing{}
+		body := getBucketView(t, listing.listFunc(paddedKeys(60)...), nil)
+
+		opts := listing.only(t)
+		is.Equal("", opts.StartAfter)                                   // first page starts at the beginning
+		is.Equal(26, opts.MaxKeys)                                      // one object beyond the page, to detect a next one
+		is.True(strings.Contains(body, "Showing 1–25"))                 // page range without a total
+		is.True(!strings.Contains(body, "of 60"))                       // the total is unknown
+		is.True(strings.Contains(body, "object-00024"))                 // last object of the page
+		is.True(!strings.Contains(body, "object-00025"))                // first object of the next page
+		is.True(strings.Contains(body, `goToNextPage('object-00024')`)) // next page resumes after it
+	})
+
+	t.Run("resumes after the cursor trail", func(t *testing.T) {
+		t.Parallel()
+		is := is.New(t)
+
+		listing := &fakeListing{}
+		body := getBucketView(t, listing.listFunc(paddedKeys(60)...), url.Values{
+			"cursor": {"object-00024", "object-00049"},
+		})
+
+		is.Equal("object-00049", listing.only(t).StartAfter)                         // resumes after the last cursor
+		is.True(strings.Contains(body, "Showing 51–60"))                             // the trail gives an exact offset
+		is.True(strings.Contains(body, `<button class="circle primary">3</button>`)) // and an exact page number
+		is.True(strings.Contains(body, "object-00050"))                              // first object of the page
+		is.True(!strings.Contains(body, "object-00049"))                             // last object of the previous page
+	})
+
+	t.Run("steps past the contents of a folder", func(t *testing.T) {
+		t.Parallel()
+		is := is.New(t)
+
+		keys := []string{"dir/", "dir/nested-object", "zebra"}
+
+		listing := &fakeListing{}
+		body := getBucketView(t, listing.listFunc(keys...), url.Values{"perPage": {"1"}})
+
+		// Resuming after the folder's own key would collapse its contents into
+		// the same folder entry again, listing it forever.
+		endOfDir := "dir/\U0010FFFF"
+		is.True(strings.Contains(body, "goToNextPage('dir\\/\U0010FFFF')")) // cursor clears the folder
+
+		listing = &fakeListing{}
+		body = getBucketView(t, listing.listFunc(keys...), url.Values{
+			"perPage": {"1"},
+			"cursor":  {endOfDir},
+		})
+
+		is.True(strings.Contains(body, "zebra"))          // the entry after the folder
+		is.True(!strings.Contains(body, "nested-object")) // which sits inside the folder, not next to it
+	})
+
+	t.Run("puts a page in key order when a listing reports folders last", func(t *testing.T) {
+		t.Parallel()
+		is := is.New(t)
+
+		listing := &fakeListing{}
+		// A delimited listing reports a batch's objects before its folders, so
+		// the batch arrives out of key order.
+		body := getBucketView(t, listing.listFunc("b-object", "a-folder/"), nil)
+
+		is.True(strings.Index(body, "a-folder") < strings.Index(body, "b-object")) // shown in key order
+	})
+
+	t.Run("falls back to a full listing when it cannot page in S3", func(t *testing.T) {
+		t.Parallel()
+
+		cases := []struct {
+			it    string
+			query url.Values
+		}{
+			{it: "sorting by another column", query: url.Values{"sortBy": {"size"}}},
+			{it: "sorting descending", query: url.Values{"sortOrder": {"desc"}}},
+			{it: "searching", query: url.Values{"search": {"object-0001"}}},
+			{it: "showing every object", query: url.Values{"perPage": {"0"}}},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.it, func(t *testing.T) {
+				t.Parallel()
+				is := is.New(t)
+
+				listing := &fakeListing{}
+				body := getBucketView(t, listing.listFunc(paddedKeys(60)...), tc.query)
+
+				opts := listing.only(t)
+				is.Equal("", opts.StartAfter) // a full listing starts at the beginning
+				is.Equal(0, opts.MaxKeys)     // and is not cut into pages
+				is.True(strings.Contains(body, " of "))
+			})
+		}
+	})
+
+	t.Run("caps a full listing and says that it is partial", func(t *testing.T) {
+		t.Parallel()
+		is := is.New(t)
+
+		listing := &fakeListing{}
+		body := getBucketView(t, listing.listFunc(paddedKeys(10_001)...), url.Values{"sortOrder": {"desc"}})
+
+		is.True(strings.Contains(body, "Partial listing")) // the listing hit the cap
+		is.True(strings.Contains(body, "of 10000"))        // and counts only what it listed
+	})
+
+	t.Run("does not call a capped listing partial", func(t *testing.T) {
+		t.Parallel()
+		is := is.New(t)
+
+		listing := &fakeListing{}
+		body := getBucketView(t, listing.listFunc(paddedKeys(10_000)...), url.Values{"sortOrder": {"desc"}})
+
+		is.True(!strings.Contains(body, "Partial listing")) // exactly at the cap is still complete
+		is.True(strings.Contains(body, "of 10000"))
+	})
 }

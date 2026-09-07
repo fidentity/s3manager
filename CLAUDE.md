@@ -47,7 +47,7 @@ HTTP request
 
 ### Key handler categories
 
-- **Views** (`HandleBucketsView`, `HandleBucketView`): Render full-page HTML templates.
+- **Views** (`HandleBucketsView`, `HandleBucketView`): Render full-page HTML templates. `HandleBucketView` has two listing paths, picked by `cursorPagingPossible`: the default name-ascending view is listed one page at a time through S3's own `StartAfter`/`MaxKeys` paging (`listObjectPage`), which is why it has no total count; every other view (other sorts, search, `All`, versions) needs the whole prefix and falls back to a scan capped at `maxScanObjects` (`listAllObjects`).
 - **CRUD** (`HandleCreateBucket`, `HandleCreateObject`, `HandleDeleteBucket`, `HandleDeleteObject`): REST-ish JSON/form handlers.
 - **Bulk** (`HandleBulkDeleteObjects`, `HandleBulkDownloadObjects`): Batch delete or ZIP-stream multiple objects.
 - **URL** (`HandleGenerateURL`): Returns presigned S3 download URLs.
